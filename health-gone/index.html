@@ -665,44 +665,60 @@
                     </div>
                 </div>
 
-                <div class="card">
-                    <h3>Update Your Metrics</h3>
-                    <form id="metricsForm">
-                        <div class="input-grid">
-                            <div class="form-group">
-                                <label>Height (cm)</label>
-                                <input type="number" id="metricHeight" step="0.1" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Weight (kg)</label>
-                                <input type="number" id="metricWeight" step="0.1" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Dietary Preference</label>
-                                <select id="metricDiet">
-                                    <option value="Vegetarian">Vegetarian</option>
-                                    <option value="Vegan">Vegan</option>
-                                    <option value="Non-Vegetarian">Non-Vegetarian</option>
-                                    <option value="Keto">Keto</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Fitness Goal</label>
-                                <select id="metricGoal">
-                                    <option value="Weight Loss">Weight Loss</option>
-                                    <option value="Muscle Gain">Muscle Gain</option>
-                                    <option value="Maintenance">Maintenance</option>
-                                    <option value="Endurance">Endurance</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Allergies</label>
-                                <input type="text" id="metricAllergies" placeholder="None or list allergies">
-                            </div>
-                        </div>
-                        <button type="submit" class="btn">Update Metrics</button>
-                    </form>
-                </div>
+            <div class="card">
+  <h3>Update Your Metrics</h3>
+  <form id="metricsForm">
+    <div class="input-grid">
+      <div class="form-group">
+        <label>Height (cm)</label>
+        <input type="number" id="metricHeight" step="0.1" required>
+      </div>
+      <div class="form-group">
+        <label>Weight (kg)</label>
+        <input type="number" id="metricWeight" step="0.1" required>
+      </div>
+      <div class="form-group">
+        <label>Activity Level</label>
+        <select id="metricActivity" required>
+          <option value="1.2">1.2 — Sedentary</option>
+          <option value="1.5">1.5 — Moderate</option>
+          <option value="1.9">1.9 — Very Active</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Dietary Preference</label>
+        <select id="metricDiet">
+          <option value="Vegetarian">Vegetarian</option>
+          <option value="Vegan">Vegan</option>
+          <option value="Non-Vegetarian">Non-Vegetarian</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Fitness Goal</label>
+        <select id="metricGoal">
+          <option value="Weight Loss">Weight Loss</option>
+          <option value="Maintenance">Maintenance</option>
+          <option value="Weight Gain">Weight Gain (Muscle Building)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Allergies</label>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        <label><input type="checkbox" name="allergy" value="nuts"> Nuts</label>
+        <label><input type="checkbox" name="allergy" value="dairy"> Dairy</label>
+        <label><input type="checkbox" name="allergy" value="eggs"> Eggs</label>
+        <label><input type="checkbox" name="allergy" value="gluten"> Gluten</label>
+        <label><input type="checkbox" name="allergy" value="soy"> Soy</label>
+        <label><input type="checkbox" name="allergy" value="seafood"> Seafood</label>
+      </div>
+    </div>
+
+    <button type="submit" class="btn">Update Metrics</button>
+  </form>
+</div>
+
 
                 <div class="chart-container">
                     <h3 style="margin-bottom: 20px;">BMI Trend</h3>
@@ -960,13 +976,17 @@
         document.getElementById('metricsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const metrics = {
-                height: document.getElementById('metricHeight').value,
-                weight: document.getElementById('metricWeight').value,
-                dietary_preference: document.getElementById('metricDiet').value,
-                fitness_goal: document.getElementById('metricGoal').value,
-                allergies: document.getElementById('metricAllergies').value
-            };
+            const allergies = Array.from(document.querySelectorAll('input[name="allergy"]:checked')).map(a => a.value);
+
+const metrics = {
+    height: document.getElementById('metricHeight').value,
+    weight: document.getElementById('metricWeight').value,
+    activity_level: document.getElementById('metricActivity').value,
+    dietary_preference: document.getElementById('metricDiet').value,
+    fitness_goal: document.getElementById('metricGoal').value,
+    allergies: allergies
+};
+
 
             try {
                 const response = await fetch(`${API_BASE}/submit_metrics`, {
@@ -1021,41 +1041,55 @@
                 document.getElementById('mealLoading').classList.add('hidden');
                 
                 if (response.ok && data.meals) {
-                    displayMeals(data.meals);
-                } else {
-                    document.getElementById('mealRecommendations').innerHTML = '<p>Unable to generate meal recommendations. Please update your metrics first.</p>';
-                }
+    displayMeals(data);
+} else {
+    document.getElementById('mealRecommendations').innerHTML = '<p>Unable to generate meal recommendations. Please update your metrics first.</p>';
+}
+
             } catch (error) {
                 document.getElementById('mealLoading').classList.add('hidden');
                 document.getElementById('mealRecommendations').innerHTML = '<p>Connection error. Please try again.</p>';
             }
         }
 
-        function displayMeals(meals) {
-            const container = document.getElementById('mealRecommendations');
-            const categories = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
-            
-            categories.forEach(category => {
-                const categoryMeals = meals[category] || generateSampleMeals(category);
-                const card = document.createElement('div');
-                card.className = 'recommendation-card';
-                card.innerHTML = `
-                    <h4>${category}</h4>
-                    ${categoryMeals.map((meal, idx) => `
-                        <div class="recommendation-item">
-                            <div class="item-details">
-                                <div class="item-name">${meal.name}</div>
-                                <div class="item-info">${meal.calories} cal | ${meal.protein}g protein | ${meal.carbs}g carbs</div>
-                            </div>
-                            <div class="checkbox-container">
-                                <input type="checkbox" onchange="markMealCompleted('${category}', ${idx})">
-                            </div>
-                        </div>
-                    `).join('')}
-                `;
-                container.appendChild(card);
-            });
-        }
+        function displayMeals(data) {
+    const container = document.getElementById('mealRecommendations');
+    container.innerHTML = '';
+
+    const meals = data.meals || [];
+    if (meals.length === 0) {
+        container.innerHTML = '<p>No meal recommendations available.</p>';
+        return;
+    }
+
+    const infoCard = document.createElement('div');
+    infoCard.className = 'recommendation-card';
+    infoCard.innerHTML = `
+        <h4>📊 Personalized Summary</h4>
+        <p><strong>BMI:</strong> ${data.bmi} (${data.bmi_tag})</p>
+        <p><strong>Goal:</strong> ${data.goal}</p>
+        <p><strong>Daily Target Calories:</strong> ${data.target_calories} kcal</p>
+    `;
+    container.appendChild(infoCard);
+
+    meals.forEach((meal) => {
+        const card = document.createElement('div');
+        card.className = 'recommendation-card';
+        card.innerHTML = `
+            <h4>${meal.name}</h4>
+            <div class="recommendation-item">
+                <div class="item-details">
+                    <div class="item-info">${meal.calories} kcal (${meal.serving})</div>
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" onchange="markMealCompleted('meal', '${meal.name}')">
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
 
         function generateSampleMeals(category) {
             const meals = {

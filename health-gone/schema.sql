@@ -46,3 +46,11 @@ CREATE TABLE IF NOT EXISTS user_activity (
     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+USE wellness_db;
+ALTER TABLE user_metrics
+DROP COLUMN activity_level;
+ALTER TABLE user_metrics
+ADD COLUMN activity_level DECIMAL(3,2) DEFAULT 1.2
+COMMENT '1.2=sedentary, 1.5=moderate, 1.9=very active';
+DESCRIBE user_metrics;

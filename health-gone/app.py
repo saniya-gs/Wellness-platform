@@ -1,4 +1,7 @@
 from flask import Flask, request, jsonify
+import os
+import pandas as pd
+
 from flask_cors import CORS
 import mysql.connector
 from mysql.connector import Error
@@ -158,7 +161,8 @@ def submit_metrics(current_user_id):
         weight = float(data.get('weight'))
         dietary_preference = data.get('dietary_preference')
         fitness_goal = data.get('fitness_goal')
-        allergies = data.get('allergies', '')
+        allergies = ','.join(data.get('allergies', []))  # store as comma-separated list
+        activity_level = float(data.get('activity_level', 1.5))  # default moderate
         
         bmi = round(weight / ((height / 100) ** 2), 2)
         
@@ -166,9 +170,9 @@ def submit_metrics(current_user_id):
         cursor = conn.cursor()
         
         query = """INSERT INTO user_metrics 
-                   (user_id, height, weight, bmi, dietary_preference, fitness_goal, allergies)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)"""
-        cursor.execute(query, (current_user_id, height, weight, bmi, dietary_preference, fitness_goal, allergies))
+                   (user_id, height, weight, bmi, dietary_preference, fitness_goal, allergies, activity_level)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+        cursor.execute(query, (current_user_id, height, weight, bmi, dietary_preference, fitness_goal, allergies, activity_level))
         conn.commit()
         cursor.close()
         conn.close()
@@ -178,55 +182,207 @@ def submit_metrics(current_user_id):
         print(f"❌ Metrics error: {e}")
         return jsonify({'message': str(e)}), 500
 
+
 @app.route('/recommend_physical', methods=['POST'])
 @token_required
 def recommend_physical(current_user_id):
     try:
         data = request.get_json()
         rec_type = data.get('type', 'meal')
-        
-        meals = {
-            'Breakfast': [
-                {'name': 'Oatmeal Bowl', 'calories': 320, 'protein': 12, 'carbs': 54},
-                {'name': 'Greek Yogurt Parfait', 'calories': 280, 'protein': 18, 'carbs': 35},
-                {'name': 'Smoothie Bowl', 'calories': 290, 'protein': 15, 'carbs': 45},
-                {'name': 'Avocado Toast', 'calories': 310, 'protein': 10, 'carbs': 38}
-            ],
-            'Lunch': [
-                {'name': 'Quinoa Buddha Bowl', 'calories': 450, 'protein': 18, 'carbs': 62},
-                {'name': 'Grilled Chicken Salad', 'calories': 420, 'protein': 35, 'carbs': 28},
-                {'name': 'Lentil Soup', 'calories': 390, 'protein': 20, 'carbs': 58},
-                {'name': 'Veggie Wrap', 'calories': 380, 'protein': 15, 'carbs': 52}
-            ],
-            'Dinner': [
-                {'name': 'Salmon with Veggies', 'calories': 480, 'protein': 38, 'carbs': 32},
-                {'name': 'Tofu Stir Fry', 'calories': 440, 'protein': 22, 'carbs': 52},
-                {'name': 'Chicken with Rice', 'calories': 520, 'protein': 42, 'carbs': 45},
-                {'name': 'Pasta Primavera', 'calories': 460, 'protein': 18, 'carbs': 68}
-            ],
-            'Snacks': [
-                {'name': 'Mixed Nuts', 'calories': 180, 'protein': 6, 'carbs': 8},
-                {'name': 'Protein Bar', 'calories': 200, 'protein': 12, 'carbs': 24},
-                {'name': 'Hummus with Veggies', 'calories': 150, 'protein': 5, 'carbs': 18},
-                {'name': 'Greek Yogurt', 'calories': 160, 'protein': 15, 'carbs': 12}
-            ]
-        }
-        
-        exercises = [
-            {'name': 'Push-ups', 'sets': 4, 'reps': 15, 'duration': 10, 'calories': 70, 'instructions': 'Keep body straight'},
-            {'name': 'Squats', 'sets': 4, 'reps': 20, 'duration': 12, 'calories': 80, 'instructions': 'Squat low, push through heels'},
-            {'name': 'Lunges', 'sets': 3, 'reps': 15, 'duration': 12, 'calories': 75, 'instructions': 'Step forward, drop back knee'},
-            {'name': 'Plank', 'sets': 3, 'reps': 1, 'duration': 8, 'calories': 50, 'instructions': 'Hold 60 seconds'},
-            {'name': 'Burpees', 'sets': 3, 'reps': 12, 'duration': 10, 'calories': 100, 'instructions': 'Full body movement'}
-        ]
-        
-        if rec_type == 'meal':
-            return jsonify({'meals': meals}), 200
+
+        if rec_type != "meal":
+            return jsonify({'message': 'Exercise recommendations not implemented yet'}), 200
+
+        # ==============================
+        # LOAD DATASETS
+        # ==============================
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        diet_path = os.path.join(base_dir, "Dataset.csv")
+        food_path = os.path.join(base_dir, "Food and Calories - Sheet1.csv")
+
+        print(f"📂 Loading datasets from:\n  {diet_path}\n  {food_path}")
+        if not os.path.exists(diet_path) or not os.path.exists(food_path):
+            print("❌ One or both dataset files are missing!")
+            return jsonify({
+                'message': 'Dataset files not found. Please verify Dataset.csv and Food and Calories - Sheet1.csv exist in backend folder.'
+            }), 500
+
+        diet_df = pd.read_csv(diet_path)
+        food_df = pd.read_csv(food_path)
+        print("✅ Datasets loaded successfully!")
+
+        # ==============================
+        # CLEAN & NORMALIZE DIET DATA
+        # ==============================
+        diet_df.columns = [c.strip().lower() for c in diet_df.columns]
+        diet_df = diet_df.rename(columns={
+            "weight(kg)": "weight_kg",
+            "height(m)": "height_m",
+            "bmi_tags": "bmi_tag",
+            "calories_to_maintain_weight": "maintain_calories"
+        }, errors="ignore")
+
+        # enforce types used in matching
+        if "bmi_tag" in diet_df.columns:
+            diet_df["bmi_tag"] = pd.to_numeric(diet_df["bmi_tag"], errors="coerce")
+        if "gender" in diet_df.columns:
+            diet_df["gender"] = diet_df["gender"].astype(str)
+
+        # ==============================
+        # FETCH USER DETAILS
+        # ==============================
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users WHERE id = %s", (current_user_id,))
+        user = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT * FROM user_metrics 
+            WHERE user_id = %s 
+            ORDER BY created_at DESC LIMIT 1
+        """, (current_user_id,))
+        metrics = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not metrics:
+            return jsonify({'message': 'No user metrics found. Please update your height, weight, and preferences first.'}), 400
+
+        # ==============================
+        # EXTRACT VALUES
+        # ==============================
+        gender = str(user['gender'])[0].upper()
+        height_m = float(metrics['height']) / 100.0  # cm -> m
+        weight_kg = float(metrics['weight'])
+        diet_pref = str(metrics['dietary_preference']).lower()
+        goal = (str(metrics['fitness_goal']).title() if metrics['fitness_goal'] else "Maintenance")
+        activity_level = float(metrics.get('activity_level', 1.5))  # default moderate
+        user_allergies = [a.strip().lower() for a in str(metrics.get('allergies', '')).split(',') if a.strip()]
+
+        # ==============================
+        # CALCULATE BMI & MAP TO NUMERIC TAG
+        # ==============================
+        bmi = weight_kg / (height_m ** 2)
+
+        # Map: 7=Underweight, 8=Normal, 9=Overweight, 10=Obese
+        if bmi < 18.5:
+            bmi_tag_text, bmi_tag_num = "Underweight", 7
+        elif 18.5 <= bmi < 25:
+            bmi_tag_text, bmi_tag_num = "Normal", 8
+        elif 25 <= bmi < 30:
+            bmi_tag_text, bmi_tag_num = "Overweight", 9
         else:
-            return jsonify({'exercises': exercises}), 200
+            bmi_tag_text, bmi_tag_num = "Obese", 10
+
+        # ==============================
+        # CALCULATE CALORIE TARGET
+        # ==============================
+        match = diet_df[
+            (diet_df.get("bmi_tag") == bmi_tag_num) &
+            (diet_df.get("gender").str.upper() == gender.upper())
+        ]
+
+        if not match.empty and "maintain_calories" in match.columns:
+            avg_maintain = match["maintain_calories"].mean()
+        elif "calories_to_maintain_weight" in diet_df.columns:
+            # fallback if file wasn't renamed as expected
+            avg_maintain = diet_df.loc[
+                (diet_df.get("bmi_tag") == bmi_tag_num) &
+                (diet_df.get("gender").str.upper() == gender.upper()),
+                "calories_to_maintain_weight"
+            ].mean()
+        else:
+            avg_maintain = 2000.0  # safe fallback
+
+        target_calories = avg_maintain * (activity_level / 1.5)
+        if goal == "Weight Loss":
+            target_calories *= 0.85
+        elif goal == "Weight Gain" or "Muscle" in goal:
+            target_calories *= 1.15
+
+        # ==============================
+        # CLEAN & FILTER FOOD DATA
+        # ==============================
+        food_df.columns = [c.strip().lower() for c in food_df.columns]
+        # normalize to Title/Capital keys used later
+        food_df = food_df.rename(columns={"food": "Food", "calories": "Calories"}, errors="ignore")
+        food_df["Calories"] = food_df["Calories"].astype(str).str.extract(r"(\d+\.?\d*)").astype(float)
+        food_df = food_df.dropna(subset=["Calories"])
+        food_df = food_df[(food_df["Calories"] > 0) & (food_df["Calories"] < 1000)]
+
+        # Diet preference filters
+        non_veg_keywords = ["chicken", "fish", "egg", "beef", "pork", "mutton", "shrimp", "bacon", "ham", "sausage", "tuna"]
+        dairy_keywords = ["milk", "paneer", "cheese", "butter", "ghee", "curd", "yogurt"]
+
+        def is_non_veg(name): return any(k in str(name).lower() for k in non_veg_keywords)
+        def has_dairy(name): return any(k in str(name).lower() for k in dairy_keywords)
+
+        if diet_pref == "vegetarian":
+            food_df = food_df[~food_df["Food"].apply(is_non_veg)]
+        elif diet_pref == "vegan":
+            food_df = food_df[~food_df["Food"].apply(is_non_veg)]
+            food_df = food_df[~food_df["Food"].apply(has_dairy)]
+
+        # Allergy filters (enhanced)
+        allergy_aliases = {
+            'nuts': ['nut', 'almond', 'cashew', 'peanut', 'walnut', 'hazelnut'],
+            'dairy': ['milk', 'cheese', 'butter', 'cream', 'paneer', 'yogurt', 'curd'],
+            'eggs': ['egg', 'omelet'],
+            'gluten': ['wheat', 'bread', 'flour', 'pasta'],
+            'soy': ['soy', 'tofu', 'soya'],
+            'seafood': ['fish', 'shrimp', 'prawn', 'crab', 'lobster', 'tuna', 'salmon']
+        }
+
+        def contains_allergen(food_name, allergies):
+            name = str(food_name).lower()
+            return any(
+                any(alias in name for alias in allergy_aliases.get(a, []))
+                for a in allergies
+            )
+
+        if user_allergies:
+            before = len(food_df)
+            food_df = food_df[~food_df["Food"].apply(lambda x: contains_allergen(x, user_allergies))]
+            print(f"⚠️ Filtered {before - len(food_df)} foods due to allergies: {user_allergies}")
+
+        # ==============================
+        # SELECT TOP FOODS BY GOAL
+        # ==============================
+        if goal == "Weight Loss":
+            top_foods = food_df.sort_values(by="Calories", ascending=True).head(10)
+        elif goal == "Weight Gain" or "Muscle" in goal:
+            top_foods = food_df.sort_values(by="Calories", ascending=False).head(10)
+        else:
+            top_foods = food_df.sample(min(10, len(food_df)), random_state=42)
+
+        # ==============================
+        # PREPARE RESPONSE
+        # ==============================
+        meals = []
+        for _, row in top_foods.iterrows():
+            meals.append({
+                "name": str(row.get("Food", "")).title(),
+                "calories": float(round(row.get("Calories", 0.0), 1)),
+                "serving": row.get("serving", "per serving")
+            })
+
+        # helpful debug
+        print(f"✅ BMI={bmi:.2f} ({bmi_tag_text}/{bmi_tag_num}), activity={activity_level}, goal={goal}, diet={diet_pref}, allergies={user_allergies}")
+        print(f"✅ Target calories: {round(target_calories)} kcal")
+
+        return jsonify({
+            "bmi": round(bmi, 2),
+            "bmi_tag": bmi_tag_text,
+            "goal": goal,
+            "target_calories": round(target_calories, 0),
+            "meals": meals
+        }), 200
+
     except Exception as e:
         print(f"❌ Physical recommendation error: {e}")
         return jsonify({'message': str(e)}), 500
+
+
 
 @app.route('/submit_mental', methods=['POST'])
 @token_required
